@@ -31,7 +31,9 @@ function downloadScript (url, options, onComplete) {
     var { options, onComplete } = parseParameters(options, undefined, onComplete);
 
     // no need to load script again
-    if (downloaded[url]) {
+    // reload: true-表示脚本需要重新加载 false-表示允许从缓存中读取
+    var reload = options.reload;
+    if (downloaded[url] && !reload) {
         return onComplete && onComplete(null);
     }
 
