@@ -116,6 +116,11 @@ function AssetManager () {
      */
     this.bundles = bundles;
 
+    /** 当前加载的 bundle game 名字，同一时间只能有一个 bundle game 被加载，加载下一个时会自动释放掉上一个 */
+    this._bundleGameName = '';
+    /** 当前加载的 bundle game 所包含的类名数组，当 bundle game 被释放时，相关的类也会一并被取消注册 */
+    this._bundleGameClassArray = [];
+
     /**
      * !#en 
      * The collection of asset which is already loaded, you can remove cache with {{#crossLink "AssetManager/releaseAsset:method"}}{{/crossLink}}
@@ -703,6 +708,84 @@ AssetManager.prototype = {
         options.preset = options.preset || 'bundle';
         options.ext = 'bundle';
         this.loadRemote(nameOrUrl, options, onComplete);
+    },
+
+    loadBundleGame (nameOrUrl, options, onComplete) {
+        this.releaseCurBundleGame();
+
+        var { options, onComplete } = parseParameters(options, undefined, onComplete);
+
+        let bundleName = cc.path.basename(nameOrUrl);
+
+        if (this.bundles.has(bundleName)) {
+            return asyncify(onComplete)(null, this.getBundle(bundleName));
+        }
+
+        let count = 0, error = null;
+        let bundleGame = null, bundleGameClassArray = [];
+        options.preset = options.preset || 'bundle';
+        options.ext = 'bundle';
+        options.reload = true;
+        this.loadRemote(nameOrUrl, options, (err, out) => {
+            if(err) {
+                error = err;
+            }
+
+            bundleGame = out;
+            count++;
+            if (count === 2) {
+                this._bundleGameName = bundleName;
+                this._bundleGameClassArray = bundleGameClassArray;
+                onComplete && onComplete(error, bundleGame);
+            }
+        });
+
+        let version = options.version;
+        // 获取bundle包的index.js脚本，通过分析脚本提取其所注册的class name数组，用于release bundle game时取消这些class的注册
+        let jsUrl = `${nameOrUrl}/index.${version ? version + '.' : ''}js`;
+        cc.assetManager.loadRemote(jsUrl, { ext: 'default' }, (err, out) => {
+            if(err) {
+                error = err;
+            }
+
+            // strScript 形如：window.__require = function t(e, s, i) {}({}, {}, ["class1", "class2", ...]);
+            var strScript = out._nativeAsset;
+            var startPos = strScript.lastIndexOf('[') + 1;
+            var endPos = strScript.lastIndexOf('])');
+            var strClassNames = strScript.substring(startPos, endPos).replace(/\"/g, '');
+            bundleGameClassArray = strClassNames.split(',');
+            count++;
+            if (count === 2) {
+                this._bundleGameName = bundleName;
+                this._bundleGameClassArray = bundleGameClassArray;
+                onComplete && onComplete(error, bundleGame);
+            }
+        });
+    },
+
+    releaseCurBundleGame () {
+        let bundleGameName = this._bundleGameName;
+        if (!bundleGameName) {
+            return;
+        }
+
+        if (this.bundles.has(bundleGameName)) {
+            let bundleGame = this.getBundle(bundleGameName);
+            bundleGame.releaseAll();
+            this.removeBundle(bundleGame);
+        }
+
+        // 把上一个bundle game遗留的class全部取消掉注册
+        let bundleGameClassArray = this._bundleGameClassArray || [];
+        for(let i=0; i<bundleGameClassArray.length; i++) {
+            let bundleGameClass = cc.js.getClassByName(bundleGameClassArray[i]);
+            if(!bundleGameClass) continue;
+
+            cc.js.unregisterClass(bundleGameClass);
+        }
+
+        this._bundleGameName = '';
+        this._bundleGameClassArray = [];
     },
 
     /**
