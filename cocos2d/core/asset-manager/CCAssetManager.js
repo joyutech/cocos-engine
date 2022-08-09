@@ -711,15 +711,15 @@ AssetManager.prototype = {
     },
 
     loadBundleGame (nameOrUrl, options, onComplete) {
-        this.releaseCurBundleGame();
-
         var { options, onComplete } = parseParameters(options, undefined, onComplete);
 
         let bundleName = cc.path.basename(nameOrUrl);
-
+        // 如果新加载的bundle game还在，那就继续使用（即新加载的bundle game还是上一个加载bundle game，未被释放的情况）
         if (this.bundles.has(bundleName)) {
             return asyncify(onComplete)(null, this.getBundle(bundleName));
         }
+
+        this.releaseCurBundleGame();
 
         let count = 0, error = null;
         let bundleGame = null, bundleGameClassArray = [];
